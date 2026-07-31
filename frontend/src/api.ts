@@ -1,0 +1,31 @@
+export interface ScanRequest {
+  iac_content: string;
+  dockerfile_content: string;
+}
+
+export interface ScanResult {
+  id: string;
+  timestamp: string;
+  status: "passed" | "blocked";
+  findings: { rule: string; count: number }[];
+  iac_snippet: string;
+  dockerfile_snippet: string;
+}
+
+const BASE = "/api";
+
+export async function submitScan(data: ScanRequest): Promise<ScanResult> {
+  const res = await fetch(`${BASE}/scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Scan failed");
+  return res.json();
+}
+
+export async function fetchScans(): Promise<ScanResult[]> {
+  const res = await fetch(`${BASE}/scans`);
+  if (!res.ok) throw new Error("Failed to fetch scans");
+  return res.json();
+}

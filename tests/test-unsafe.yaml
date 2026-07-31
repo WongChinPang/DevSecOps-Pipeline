@@ -1,0 +1,37 @@
+# Unsafe IaC template — should be BLOCKED by the security scanner
+# Contains: 0.0.0.0/0:22 (SSH open to world), IAM wildcard, S3 no encryption
+
+Resources:
+  UnsafeSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Insecure security group
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 22
+          ToPort: 22
+          IpProtocol: tcp
+        - CidrIp: 0.0.0.0/0
+          FromPort: 5432
+          ToPort: 5432
+          IpProtocol: tcp
+        - CidrIp: 10.0.0.0/16
+          FromPort: 443
+          ToPort: 443
+          IpProtocol: tcp
+
+  UnsafeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: insecure-bucket
+
+  UnsafeIAMPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: OverlyPermissivePolicy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: "*"
+            Resource: "*"

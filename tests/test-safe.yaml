@@ -1,0 +1,35 @@
+# Safe IaC template — should pass all scanner checks
+# Security group restricts to internal CIDR only, S3 encryption enabled, KMS used
+
+Resources:
+  SafeSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Internal-only security group
+      SecurityGroupIngress:
+        - CidrIp: 10.0.0.0/16
+          FromPort: 443
+          ToPort: 443
+          IpProtocol: tcp
+        - CidrIp: 10.0.0.0/16
+          FromPort: 80
+          ToPort: 80
+          IpProtocol: tcp
+
+  SafeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !Ref EncryptionKey
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+
+  EncryptionKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: KMS key for S3 encryption
+      EnableKeyRotation: true
