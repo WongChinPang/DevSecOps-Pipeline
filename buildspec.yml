@@ -5,7 +5,12 @@ phases:
       - echo "=== Upload IaC to S3 ==="
       - aws s3 cp infrastructure.yaml s3://devsecops-reports-087572104425/templates/infrastructure.yaml
       - echo "=== Static Security Scan ==="
-      - jq -n --rawfile iac infrastructure.yaml --rawfile dkr Dockerfile '{iac_content: $iac, dockerfile_content: $dkr}' > /tmp/payload.json
+      - |
+        jq -n \
+          --rawfile iac infrastructure.yaml \
+          --rawfile dkr Dockerfile \
+          '{iac_content: $iac, dockerfile_content: $dkr}' \
+          > /tmp/payload.json
       - aws lambda invoke --function-name devsecops-security-scanner --payload file:///tmp/payload.json scan_response.json
       - |
         if grep -q "FunctionError" scan_response.json; then
@@ -15,6 +20,11 @@ phases:
         fi
       - echo "Security scan passed!"
       - echo "=== LLM Auditor ==="
-      - jq -n --arg b "devsecops-reports-087572104425" --arg k "templates/infrastructure.yaml" '{s3_bucket: $b, s3_key: $k}' | tee /tmp/llm-payload.json
+      - |
+        jq -n \
+          --arg b "devsecops-reports-087572104425" \
+          --arg k "templates/infrastructure.yaml" \
+          '{s3_bucket: $b, s3_key: $k}' \
+          | tee /tmp/llm-payload.json
       - aws lambda invoke --function-name llm-auditor --cli-binary-format raw-in-base64-out --payload file:///tmp/llm-payload.json audit_response.json
       - echo "LLM Audit completed. Report in S3 reports/"
