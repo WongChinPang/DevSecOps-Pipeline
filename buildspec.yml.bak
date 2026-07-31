@@ -1,0 +1,54 @@
+version: 0.2
+
+env:
+  variables:
+    ECR_REPO_URI: "087572104425.dkr.ecr.us-east-1.amazonaws.com/devsecops-app"
+    AWS_REGION: "us-east-1"
+
+phases:
+  pre_build:
+    commands:
+      - echo "=== Logging in to Amazon ECR ==="
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO_URI
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - echo "Image tag: $IMAGE_TAG"
+
+  build:
+    commands:
+      - echo "=== Building Docker image ==="
+      - docker build -t $ECR_REPO_URI:$IMAGE_TAG -t $ECR_REPO_URI:latest .
+
+  test:
+    commands:
+      - echo "=== Static Security Scan ==="
+      - |
+        aws lambda invoke \
+          --function-name devsecops-security-scanner \
+          --payload "{\"iac_content\": $(cat infrastructure.yaml | jq -Rs .), \"dockerfile_content\": $(cat Dockerfile | jq -Rs .)}" \
+          scan_response.json
+      - |
+        if grep -q "FunctionError" scan_response.json; then
+          echo "!!! BLOCKED: Security scan found HIGH risk vulnerabilities !!!"
+          cat scan_response.json
+          exit 1
+        fi
+      - echo "Security scan passed!"
+      - echo "=== AI Audit ==="
+      - |
+        aws lambda invoke \
+          --function-name llm-auditor \
+          --payload "{\"iac_content\": $(cat infrastructure.yaml | jq -Rs .), \"dockerfile_content\": $(cat Dockerfile | jq -Rs .)}" \
+          audit_response.json
+      - echo "AI audit completed. Report saved to S3 reports/"
+
+  post_build:
+    commands:
+      - echo "=== Pushing Docker image ==="
+      - docker push $ECR_REPO_URI:$IMAGE_TAG
+      - docker push $ECR_REPO_URI:latest
+      - printf '[{"name":"webapp","imageUri":"%s"}]' "$ECR_REPO_URI:$IMAGE_TAG" > imagedefinitions.json
+      - echo "=== Build complete ==="
+
+artifacts:
+  files:
+    - imagedefinitions.json
