@@ -12,6 +12,7 @@ imagedefinitions.json
 node_modules/
 frontend/dist/
 frontend/node_modules/
+demo-trigger.txt
 
 CLAUDE.md
 docs/
