@@ -28,11 +28,20 @@ export default function App() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
-      <header className="mb-8">
+      <header className="mb-6">
         <h1 className="text-2xl font-bold">DevSecOps Scanner</h1>
-        <p className="text-gray-500 text-sm mt-1">
-          Upload IaC templates and Dockerfiles for automated security scanning
+        <p className="text-gray-400 text-sm mt-1">
+          Scan your CloudFormation IaC templates and Dockerfiles for security vulnerabilities.
+          The scanner checks 8 security rules: IAM policies, network exposure, data encryption, and container security.
         </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">IAM Policies</span>
+          <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">Security Groups</span>
+          <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">S3 Encryption</span>
+          <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">KMS Keys</span>
+          <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">SSH/DB Ports</span>
+          <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">Dockerfile Root</span>
+        </div>
       </header>
 
       <UploadForm onScan={handleScan} loading={loading} />

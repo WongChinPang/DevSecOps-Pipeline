@@ -3,11 +3,20 @@ export interface ScanRequest {
   dockerfile_content: string;
 }
 
+export interface DetailedFinding {
+  rule_id: string;
+  status: string;
+  risk_level: string;
+  finding: string;
+  remediation: string;
+}
+
 export interface ScanResult {
   id: string;
   timestamp: string;
   status: "passed" | "blocked";
   findings: { rule: string; count: number }[];
+  details: DetailedFinding[];
   iac_snippet: string;
   dockerfile_snippet: string;
 }
