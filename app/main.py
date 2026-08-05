@@ -4,6 +4,7 @@ from pydantic import BaseModel
 import os
 
 from scan_service import run_scan, get_scans
+from github_service import trigger_scan as github_trigger
 
 app = FastAPI(title="DevSecOps Pipeline Demo")
 
@@ -11,6 +12,7 @@ app = FastAPI(title="DevSecOps Pipeline Demo")
 class ScanRequest(BaseModel):
     iac_content: str
     dockerfile_content: str
+    trigger_pipeline: bool = False
 
 
 @app.get("/api/health")
@@ -21,6 +23,8 @@ def health():
 @app.post("/api/scan")
 def scan(req: ScanRequest):
     result = run_scan(req.iac_content, req.dockerfile_content)
+    if req.trigger_pipeline:
+        result["pipeline"] = github_trigger(req.iac_content, req.dockerfile_content)
     return result
 
 

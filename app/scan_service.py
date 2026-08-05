@@ -17,8 +17,7 @@ scans: list[dict] = []
 
 
 def _log(msg: str) -> None:
-    sys.stderr.write(f"[scan_service] {msg}\n")
-    sys.stderr.flush()
+    pass  # set to sys.stderr.write(...) for debugging
 
 
 def _invoke_scanner(iac_content: str, dockerfile_content: str) -> tuple[bool, str, list[dict]]:
