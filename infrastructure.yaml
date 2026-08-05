@@ -1,18 +1,23 @@
 Resources:
-  MySG:
+  BadSG:
     Type: AWS::EC2::SecurityGroup
     Properties:
       SecurityGroupIngress:
-        - CidrIp: 10.0.0.0/16
-          FromPort: 443
-          ToPort: 443
-  MyBucket:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 22
+          ToPort: 22
+          IpProtocol: tcp
+  BadPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: OverlyPermissive
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: "*"
+            Resource: "*"
+  BadBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: aws:kms
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
+      BucketName: insecure-bucket
