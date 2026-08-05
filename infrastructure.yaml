@@ -1,244 +1,27 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: DevSecOps Pipeline Infrastructure
-
-Parameters:
-  Environment:
-    Type: String
-    Default: dev
-    AllowedValues: [dev, staging, prod]
+Description: DevSecOps Pipeline Infrastructure (DEMO - Unsafe)
 
 Resources:
-  VPC:
-    Type: AWS::EC2::VPC
-    Properties:
-      CidrBlock: 10.0.0.0/16
-      EnableDnsSupport: true
-      EnableDnsHostnames: true
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-vpc
-
-  PublicSubnet1A:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: 10.0.1.0/24
-      AvailabilityZone: !Select [0, !GetAZs ""]
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-public-1a
-
-  PublicSubnet1B:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: 10.0.2.0/24
-      AvailabilityZone: !Select [1, !GetAZs ""]
-      MapPublicIpOnLaunch: true
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-public-1b
-
-  PrivateSubnet1A:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: 10.0.3.0/24
-      AvailabilityZone: !Select [0, !GetAZs ""]
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-private-1a
-
-  PrivateSubnet1B:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref VPC
-      CidrBlock: 10.0.4.0/24
-      AvailabilityZone: !Select [1, !GetAZs ""]
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-private-1b
-
-  InternetGateway:
-    Type: AWS::EC2::InternetGateway
-    Properties:
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-igw
-
-  AttachGateway:
-    Type: AWS::EC2::VPCGatewayAttachment
-    Properties:
-      VpcId: !Ref VPC
-      InternetGatewayId: !Ref InternetGateway
-
-  PublicRouteTable:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-public-rt
-
-  PublicRoute:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref PublicRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref InternetGateway
-
-  AppSecurityGroup:
+  UnsafeSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Security group for the ECS Fargate application
-      VpcId: !Ref VPC
+      GroupDescription: DO NOT USE - insecure example
       SecurityGroupIngress:
-        - CidrIp: 10.0.0.0/16
-          FromPort: 443
-          ToPort: 443
-          IpProtocol: tcp
         - CidrIp: 0.0.0.0/0
-          FromPort: 80
-          ToPort: 80
+          FromPort: 22
+          ToPort: 22
           IpProtocol: tcp
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-app-sg
-
-  ReportBucket:
+  UnsafePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: OverlyPermissive
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: "*"
+            Resource: "*"
+  UnsafeBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub devsecops-reports-${AWS::AccountId}
-      BucketEncryption:
-        ServerSideEncryptionConfiguration:
-          - ServerSideEncryptionByDefault:
-              SSEAlgorithm: AES256
-      PublicAccessBlockConfiguration:
-        BlockPublicAcls: true
-        BlockPublicPolicy: true
-        IgnorePublicAcls: true
-        RestrictPublicBuckets: true
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-reports
-
-  KMSKey:
-    Type: AWS::KMS::Key
-    Properties:
-      Description: KMS key for DevSecOps Pipeline encryption
-      KeyPolicy:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
-            Action: kms:*
-            Resource: "*"
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-kms
-
-  CodePipelineRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codepipeline.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AdministratorAccess
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-codepipeline-role
-
-  CodeBuildRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: codebuild.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AdministratorAccess
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-codebuild-role
-
-  LambdaRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Tags:
-        - Key: Name
-          Value: !Sub ${Environment}-lambda-role
-
-Outputs:
-  VpcId:
-    Value: !Ref VPC
-    Export:
-      Name: !Sub ${Environment}-vpc-id
-
-  PublicSubnet1A:
-    Value: !Ref PublicSubnet1A
-    Export:
-      Name: !Sub ${Environment}-public-subnet-1a
-
-  PublicSubnet1B:
-    Value: !Ref PublicSubnet1B
-    Export:
-      Name: !Sub ${Environment}-public-subnet-1b
-
-  PrivateSubnet1A:
-    Value: !Ref PrivateSubnet1A
-    Export:
-      Name: !Sub ${Environment}-private-subnet-1a
-
-  PrivateSubnet1B:
-    Value: !Ref PrivateSubnet1B
-    Export:
-      Name: !Sub ${Environment}-private-subnet-1b
-
-  AppSecurityGroupId:
-    Value: !Ref AppSecurityGroup
-    Export:
-      Name: !Sub ${Environment}-app-sg-id
-
-  ReportBucketName:
-    Value: !Ref ReportBucket
-    Export:
-      Name: !Sub ${Environment}-report-bucket
-
-  KMSKeyId:
-    Value: !Ref KMSKey
-    Export:
-      Name: !Sub ${Environment}-kms-key-id
-
-  CodePipelineRoleArn:
-    Value: !GetAtt CodePipelineRole.Arn
-    Export:
-      Name: !Sub ${Environment}-codepipeline-role-arn
-
-  CodeBuildRoleArn:
-    Value: !GetAtt CodeBuildRole.Arn
-    Export:
-      Name: !Sub ${Environment}-codebuild-role-arn
-
-  LambdaRoleArn:
-    Value: !GetAtt LambdaRole.Arn
-    Export:
-      Name: !Sub ${Environment}-lambda-role-arn
+      BucketName: insecure-data-bucket
