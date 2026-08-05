@@ -1,8 +1,27 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: DevSecOps Pipeline Infrastructure (DEMO - Unsafe)
+
 Resources:
-  MySG:
+  UnsafeSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
+      GroupDescription: DO NOT USE - insecure example
       SecurityGroupIngress:
-        - CidrIp: 10.0.0.0/16
-          FromPort: 443
-          ToPort: 443
+        - CidrIp: 0.0.0.0/0
+          FromPort: 22
+          ToPort: 22
+          IpProtocol: tcp
+  UnsafePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: OverlyPermissive
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: "*"
+            Resource: "*"
+  UnsafeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: insecure-data-bucket
