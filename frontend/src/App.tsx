@@ -2,16 +2,29 @@ import { useState, useEffect, useCallback } from "react";
 import UploadForm from "./components/UploadForm";
 import ScanResults from "./components/ScanResults";
 import ScanHistory from "./components/ScanHistory";
-import { submitScan, fetchScans } from "./api";
+import LoginForm from "./components/LoginForm";
+import { submitScan, fetchScans, isAuthenticated, logout } from "./api";
 import type { ScanRequest, ScanResult } from "./api";
 
 export default function App() {
+  const [loggedIn, setLoggedIn] = useState(isAuthenticated());
   const [latest, setLatest] = useState<ScanResult | null>(null);
   const [history, setHistory] = useState<ScanResult[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetchScans().then(setHistory).catch(() => {});
+    if (loggedIn) {
+      fetchScans().then(setHistory).catch(() => {});
+    }
+  }, [loggedIn]);
+
+  const handleLogin = useCallback(() => setLoggedIn(true), []);
+
+  const handleLogout = useCallback(() => {
+    logout();
+    setLoggedIn(false);
+    setLatest(null);
+    setHistory([]);
   }, []);
 
   const handleScan = useCallback(async (data: ScanRequest) => {
@@ -26,10 +39,22 @@ export default function App() {
     setLoading(false);
   }, []);
 
+  if (!loggedIn) {
+    return <LoginForm onLogin={handleLogin} />;
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       <header className="mb-6">
-        <h1 className="text-2xl font-bold">DevSecOps Scanner</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold">DevSecOps Scanner</h1>
+          <button
+            onClick={handleLogout}
+            className="text-xs text-gray-500 hover:text-gray-300 cursor-pointer"
+          >
+            Sign Out
+          </button>
+        </div>
         <p className="text-gray-400 text-sm mt-1">
           Scan your CloudFormation IaC templates and Dockerfiles for security vulnerabilities.
           The scanner checks 8 security rules: IAM policies, network exposure, data encryption, and container security.

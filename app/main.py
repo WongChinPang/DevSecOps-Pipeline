@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+import secrets
+from fastapi import FastAPI, Header, HTTPException, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import os
@@ -8,11 +9,36 @@ from github_service import trigger_scan as github_trigger
 
 app = FastAPI(title="DevSecOps Pipeline Demo")
 
+tokens: set[str] = set()
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
 
 class ScanRequest(BaseModel):
     iac_content: str
     dockerfile_content: str
     trigger_pipeline: bool = False
+
+
+def require_auth(authorization: str = Header(None)):
+    if not authorization:
+        raise HTTPException(401, "Authentication required")
+    token = authorization.replace("Bearer ", "")
+    if token not in tokens:
+        raise HTTPException(401, "Invalid authentication token")
+    return token
+
+
+@app.post("/api/login")
+def login(req: LoginRequest):
+    if req.username == "123" and req.password == "123":
+        token = secrets.token_hex(16)
+        tokens.add(token)
+        return {"success": True, "token": token}
+    raise HTTPException(401, "Invalid credentials")
 
 
 @app.get("/api/health")
@@ -21,7 +47,7 @@ def health():
 
 
 @app.post("/api/scan")
-def scan(req: ScanRequest):
+def scan(req: ScanRequest, _token: str = Depends(require_auth)):
     result = run_scan(req.iac_content, req.dockerfile_content)
     if req.trigger_pipeline:
         result["pipeline"] = github_trigger(req.iac_content, req.dockerfile_content)
@@ -29,11 +55,12 @@ def scan(req: ScanRequest):
 
 
 @app.get("/api/scans")
-def list_scans():
+def list_scans(_token: str = Depends(require_auth)):
     return get_scans()
 
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+
 
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
