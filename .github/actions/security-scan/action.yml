@@ -1,0 +1,72 @@
+name: "DevSecOps Security Scan"
+description: "Scan IaC templates and Dockerfiles using the DevSecOps Lambda scanner"
+
+inputs:
+  iac_file:
+    description: "Path to the IaC template file"
+    required: false
+    default: "infrastructure.yaml"
+  dockerfile:
+    description: "Path to the Dockerfile"
+    required: false
+    default: "Dockerfile"
+  scanner_function:
+    description: "AWS Lambda function name for the security scanner"
+    required: false
+    default: "devsecops-security-scanner"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install jq
+      shell: bash
+      run: |
+        if ! command -v jq &> /dev/null; then
+          sudo apt-get update -qq && sudo apt-get install -y -qq jq
+        fi
+
+    - name: Run Security Scan
+      shell: bash
+      run: |
+        echo "=== DevSecOps Security Scan ==="
+        echo "IaC file:     ${{ inputs.iac_file }}"
+        echo "Dockerfile:   ${{ inputs.dockerfile }}"
+
+        if [ ! -f "${{ inputs.iac_file }}" ]; then
+          echo "❌ ERROR: IaC file '${{ inputs.iac_file }}' not found"
+          exit 2
+        fi
+
+        if [ ! -f "${{ inputs.dockerfile }}" ]; then
+          echo "❌ ERROR: Dockerfile '${{ inputs.dockerfile }}' not found"
+          exit 2
+        fi
+
+        python3 -c "
+        import json
+        iac = open('${{ inputs.iac_file }}').read()
+        dkr = open('${{ inputs.dockerfile }}').read()
+        payload = json.dumps({'iac_content': iac, 'dockerfile_content': dkr})
+        open('/tmp/payload.json', 'w').write(payload)
+        "
+
+        aws lambda invoke \
+          --function-name ${{ inputs.scanner_function }} \
+          --cli-binary-format raw-in-base64-out \
+          --payload file:///tmp/payload.json \
+          /tmp/scan_result.json
+
+        if grep -q "FunctionError" /tmp/scan_result.json; then
+          echo ""
+          echo "!!! BLOCKED — Security vulnerabilities found !!!"
+          python3 -c "
+          import json
+          with open('/tmp/scan_result.json') as f:
+              data = json.load(f)
+          print(data.get('errorMessage', 'Unknown error'))
+          "
+          exit 1
+        fi
+
+        echo ""
+        echo "✅ Security scan passed — no vulnerabilities found"

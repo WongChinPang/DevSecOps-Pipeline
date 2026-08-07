@@ -5,7 +5,6 @@ from pydantic import BaseModel
 import os
 
 from scan_service import run_scan, get_scans
-from github_service import trigger_scan as github_trigger
 
 app = FastAPI(title="DevSecOps Pipeline Demo")
 
@@ -20,7 +19,6 @@ class LoginRequest(BaseModel):
 class ScanRequest(BaseModel):
     iac_content: str
     dockerfile_content: str
-    trigger_pipeline: bool = False
 
 
 def require_auth(authorization: str = Header(None)):
@@ -34,7 +32,7 @@ def require_auth(authorization: str = Header(None)):
 
 @app.post("/api/login")
 def login(req: LoginRequest):
-    if req.username == "123" and req.password == "123":
+    if req.username == "alan" and req.password == "123456789":
         token = secrets.token_hex(16)
         tokens.add(token)
         return {"success": True, "token": token}
@@ -48,10 +46,7 @@ def health():
 
 @app.post("/api/scan")
 def scan(req: ScanRequest, _token: str = Depends(require_auth)):
-    result = run_scan(req.iac_content, req.dockerfile_content)
-    if req.trigger_pipeline:
-        result["pipeline"] = github_trigger(req.iac_content, req.dockerfile_content)
-    return result
+    return run_scan(req.iac_content, req.dockerfile_content)
 
 
 @app.get("/api/scans")

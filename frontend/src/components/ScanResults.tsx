@@ -89,27 +89,6 @@ export default function ScanResults({ result }: Props) {
           No security issues found. This configuration is safe to deploy.
         </p>
       )}
-
-      {result.pipeline && (
-        <div className={`mt-4 border rounded-lg p-3 ${result.pipeline.success ? "border-emerald-800 bg-emerald-950/30" : "border-gray-700 bg-gray-900"}`}>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="text-sm font-semibold">
-              {result.pipeline.success ? "\u2705 Pipeline Triggered" : "\u26A0\uFE0F Pipeline Not Triggered"}
-            </span>
-          </div>
-          {result.pipeline.results.map((r: {file: string; committed: boolean}, i: number) => (
-            <div key={i} className="text-xs text-gray-400">
-              {r.committed ? "\u2705" : "\u274C"} Committed {r.file} to GitHub
-            </div>
-          ))}
-          {result.pipeline.pipeline_url && (
-            <a href={result.pipeline.pipeline_url} target="_blank" rel="noopener"
-              className="text-xs text-emerald-400 underline mt-1 inline-block">
-              View on GitHub Actions
-            </a>
-          )}
-        </div>
-      )}
     </div>
   );
 }

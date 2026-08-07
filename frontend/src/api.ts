@@ -1,7 +1,6 @@
 export interface ScanRequest {
   iac_content: string;
   dockerfile_content: string;
-  trigger_pipeline: boolean;
 }
 
 export interface DetailedFinding {
@@ -20,11 +19,6 @@ export interface ScanResult {
   details: DetailedFinding[];
   iac_snippet: string;
   dockerfile_snippet: string;
-  pipeline?: {
-    success: boolean;
-    results: { file: string; committed: boolean }[];
-    pipeline_url: string | null;
-  };
 }
 
 const BASE = "/api";

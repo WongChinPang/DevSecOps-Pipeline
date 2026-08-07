@@ -70,11 +70,10 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]`;
 export default function UploadForm({ onScan, loading }: Props) {
   const [iac, setIac] = useState(SAFE_IAC);
   const [dockerfile, setDockerfile] = useState(SAFE_DOCKERFILE);
-  const [triggerPipeline, setTriggerPipeline] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onScan({ iac_content: iac, dockerfile_content: dockerfile, trigger_pipeline: triggerPipeline });
+    onScan({ iac_content: iac, dockerfile_content: dockerfile });
   };
 
   const loadSafe = () => {
@@ -133,18 +132,6 @@ export default function UploadForm({ onScan, loading }: Props) {
               placeholder="Paste your Dockerfile here..."
             />
           </div>
-        </div>
-        <div className="flex items-center gap-2 mb-2">
-          <input
-            type="checkbox"
-            id="trigger-pipeline"
-            checked={triggerPipeline}
-            onChange={(e) => setTriggerPipeline(e.target.checked)}
-            className="w-4 h-4 accent-emerald-500 cursor-pointer"
-          />
-          <label htmlFor="trigger-pipeline" className="text-sm text-gray-400 cursor-pointer select-none">
-            Also commit to GitHub and trigger CI/CD Pipeline
-          </label>
         </div>
         <button
           type="submit"
