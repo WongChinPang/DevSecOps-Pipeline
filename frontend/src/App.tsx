@@ -2,12 +2,16 @@ import { useState, useEffect, useCallback } from "react";
 import UploadForm from "./components/UploadForm";
 import ScanResults from "./components/ScanResults";
 import ScanHistory from "./components/ScanHistory";
+import AuditLog from "./components/AuditLog";
 import LoginForm from "./components/LoginForm";
 import { submitScan, fetchScans, isAuthenticated, logout } from "./api";
 import type { ScanRequest, ScanResult } from "./api";
 
+type Tab = "scanner" | "audit";
+
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(isAuthenticated());
+  const [tab, setTab] = useState<Tab>("scanner");
   const [latest, setLatest] = useState<ScanResult | null>(null);
   const [history, setHistory] = useState<ScanResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -55,29 +59,54 @@ export default function App() {
             Sign Out
           </button>
         </div>
-        <p className="text-gray-400 text-sm mt-1">
-          Scan your CloudFormation IaC templates and Dockerfiles for security vulnerabilities.
-          The scanner checks 8 security rules: IAM policies, network exposure, data encryption, and container security.
-        </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">IAM Policies</span>
-          <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">Security Groups</span>
-          <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">S3 Encryption</span>
-          <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">KMS Keys</span>
-          <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">SSH/DB Ports</span>
-          <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">Dockerfile Root</span>
+        <div className="flex gap-1 mt-3">
+          <button
+            onClick={() => setTab("scanner")}
+            className={`text-sm px-4 py-1.5 rounded-lg cursor-pointer transition-colors ${
+              tab === "scanner"
+                ? "bg-emerald-700 text-white"
+                : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+            }`}
+          >
+            Scanner
+          </button>
+          <button
+            onClick={() => setTab("audit")}
+            className={`text-sm px-4 py-1.5 rounded-lg cursor-pointer transition-colors ${
+              tab === "audit"
+                ? "bg-emerald-700 text-white"
+                : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+            }`}
+          >
+            Audit Log
+          </button>
         </div>
       </header>
 
-      <UploadForm onScan={handleScan} loading={loading} />
-
-      {latest && (
-        <div className="mt-6">
-          <ScanResults result={latest} />
-        </div>
+      {tab === "scanner" && (
+        <>
+          <p className="text-gray-400 text-sm mb-4">
+            Scan your CloudFormation IaC templates and Dockerfiles for security vulnerabilities.
+          </p>
+          <div className="flex flex-wrap gap-2 mb-4">
+            <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">IAM Policies</span>
+            <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">Security Groups</span>
+            <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">S3 Encryption</span>
+            <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">KMS Keys</span>
+            <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">SSH/DB Ports</span>
+            <span className="text-xs bg-gray-800 text-gray-300 px-2 py-1 rounded">Dockerfile Root</span>
+          </div>
+          <UploadForm onScan={handleScan} loading={loading} />
+          {latest && (
+            <div className="mt-6">
+              <ScanResults result={latest} />
+            </div>
+          )}
+          <ScanHistory scans={history} />
+        </>
       )}
 
-      <ScanHistory scans={history} />
+      {tab === "audit" && <AuditLog />}
     </div>
   );
 }
