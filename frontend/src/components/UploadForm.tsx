@@ -35,6 +35,37 @@ USER appuser
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]`;
 
+const SAFE_APP_CODE = `import os
+from fastapi import FastAPI
+
+app = FastAPI()
+API_KEY = os.getenv("API_KEY")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+
+@app.get("/")
+def root():
+    return {"status": "ok"}`;
+
+const UNSAFE_APP_CODE = `import os
+from fastapi import FastAPI
+
+app = FastAPI()
+# UNSAFE: hardcoded credentials
+API_KEY = "sk-proj-abc123def456ghi789jkl012mno345pqr678stu901vwx"
+DB_PASSWORD = "admin123!"
+AWS_ACCESS_KEY = "AKIAIOSFODNN7EXAMPLE"
+
+@app.get("/")
+def root():
+    # UNSAFE: command injection
+    user_input = "data.txt"
+    os.system(f"cat {user_input}")
+    
+    # UNSAFE: eval
+    result = eval("1 + 1")
+    
+    return {"status": "ok"}`;
+
 const UNSAFE_IAC = `Resources:
   BadSG:
     Type: AWS::EC2::SecurityGroup
@@ -70,27 +101,21 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]`;
 export default function UploadForm({ onScan, loading }: Props) {
   const [iac, setIac] = useState(SAFE_IAC);
   const [dockerfile, setDockerfile] = useState(SAFE_DOCKERFILE);
+  const [appCode, setAppCode] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onScan({ iac_content: iac, dockerfile_content: dockerfile });
+    onScan({ iac_content: iac, dockerfile_content: dockerfile, app_code: appCode });
   };
 
-  const loadSafe = () => {
-    setIac(SAFE_IAC);
-    setDockerfile(SAFE_DOCKERFILE);
-  };
-
-  const loadUnsafe = () => {
-    setIac(UNSAFE_IAC);
-    setDockerfile(UNSAFE_DOCKERFILE);
-  };
+  const loadSafe = () => { setIac(SAFE_IAC); setDockerfile(SAFE_DOCKERFILE); setAppCode(SAFE_APP_CODE); };
+  const loadUnsafe = () => { setIac(UNSAFE_IAC); setDockerfile(UNSAFE_DOCKERFILE); setAppCode(UNSAFE_APP_CODE); };
 
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <p className="text-sm text-gray-400">
-          Paste your IaC template (YAML) and Dockerfile below, then click Scan.
+          Paste your IaC template, Dockerfile, and optionally application code — click Scan.
         </p>
         <div className="flex gap-2 ml-auto">
           <button type="button" onClick={loadSafe}
@@ -110,32 +135,32 @@ export default function UploadForm({ onScan, loading }: Props) {
             <label className="block text-sm font-medium text-gray-300 mb-1">
               IaC Template <span className="text-gray-500">(CloudFormation YAML)</span>
             </label>
-            <textarea
-              value={iac}
-              onChange={(e) => setIac(e.target.value)}
-              rows={16}
+            <textarea value={iac} onChange={(e) => setIac(e.target.value)}
+              rows={12} spellCheck={false} placeholder="Paste your CloudFormation YAML here..."
               className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm font-mono text-green-400 focus:outline-none focus:border-emerald-500 resize-y"
-              spellCheck={false}
-              placeholder="Paste your CloudFormation YAML here..."
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
-              Dockerfile <span className="text-gray-500">(container build instructions)</span>
+              Dockerfile <span className="text-gray-500">(container build)</span>
             </label>
-            <textarea
-              value={dockerfile}
-              onChange={(e) => setDockerfile(e.target.value)}
-              rows={16}
+            <textarea value={dockerfile} onChange={(e) => setDockerfile(e.target.value)}
+              rows={12} spellCheck={false} placeholder="Paste your Dockerfile here..."
               className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm font-mono text-green-400 focus:outline-none focus:border-emerald-500 resize-y"
-              spellCheck={false}
-              placeholder="Paste your Dockerfile here..."
             />
           </div>
         </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-1">
+            Application Code <span className="text-gray-500">(optional — Python, JS, TS)</span>
+          </label>
+          <textarea value={appCode} onChange={(e) => setAppCode(e.target.value)}
+            rows={8} spellCheck={false} placeholder="Paste your application code here (Python, JavaScript, TypeScript)..."
+            className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-sm font-mono text-green-400 focus:outline-none focus:border-emerald-500 resize-y"
+          />
+        </div>
         <button
-          type="submit"
-          disabled={loading}
+          type="submit" disabled={loading}
           className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-lg font-semibold transition-colors cursor-pointer"
         >
           {loading ? "Scanning..." : "Run Security Scan"}

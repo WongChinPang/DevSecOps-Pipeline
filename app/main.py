@@ -7,6 +7,7 @@ import os
 
 import boto3
 from scan_service import run_scan, get_scans
+from code_scanner import scan_app_code
 
 app = FastAPI(title="DevSecOps Pipeline Demo")
 
@@ -23,6 +24,7 @@ class LoginRequest(BaseModel):
 class ScanRequest(BaseModel):
     iac_content: str
     dockerfile_content: str
+    app_code: str = ""
 
 
 def require_auth(authorization: str = Header(None)):
@@ -50,7 +52,10 @@ def health():
 
 @app.post("/api/scan")
 def scan(req: ScanRequest, _token: str = Depends(require_auth)):
-    return run_scan(req.iac_content, req.dockerfile_content)
+    result = run_scan(req.iac_content, req.dockerfile_content, req.app_code)
+    if req.app_code.strip():
+        result["code_findings"] = scan_app_code(req.app_code)
+    return result
 
 
 @app.get("/api/scans")

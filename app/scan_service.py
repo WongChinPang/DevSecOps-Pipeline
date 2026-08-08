@@ -49,13 +49,18 @@ def _invoke_scanner(iac_content: str, dockerfile_content: str) -> tuple[bool, st
     return has_error, error_msg, summary
 
 
-def _invoke_llm_auditor(iac_content: str) -> list[dict]:
+def _invoke_llm_auditor(iac_content: str, app_code: str = "") -> list[dict]:
     scan_id = str(uuid.uuid4())[:8]
     s3_key = f"templates/web-scan-{scan_id}.yaml"
     _log(f"uploading IaC to s3://{S3_BUCKET}/{s3_key}")
 
+    # Combine IaC and app code for LLM analysis
+    full_content = iac_content
+    if app_code.strip():
+        full_content += "\n\n# === Application Code ===\n" + app_code
+
     try:
-        s3.put_object(Bucket=S3_BUCKET, Key=s3_key, Body=iac_content.encode("utf-8"), ContentType="text/yaml")
+        s3.put_object(Bucket=S3_BUCKET, Key=s3_key, Body=full_content.encode("utf-8"), ContentType="text/yaml")
     except Exception as e:
         _log(f"S3 upload failed: {type(e).__name__}: {e}")
         return []
@@ -103,14 +108,14 @@ def _invoke_llm_auditor(iac_content: str) -> list[dict]:
     return []
 
 
-def run_scan(iac_content: str, dockerfile_content: str) -> dict:
-    _log(f"scan start — iac={len(iac_content)} chars, docker={len(dockerfile_content)} chars")
+def run_scan(iac_content: str, dockerfile_content: str, app_code: str = "") -> dict:
+    _log(f"scan start — iac={len(iac_content)} chars, docker={len(dockerfile_content)} chars, app_code={len(app_code)} chars")
     has_error, error_msg, summary = _invoke_scanner(iac_content, dockerfile_content)
     _log(f"scanner result: has_error={has_error}")
 
     details: list[dict] = []
     if has_error:
-        details = _invoke_llm_auditor(iac_content)
+        details = _invoke_llm_auditor(iac_content, app_code)
 
     scan_id = str(uuid.uuid4())[:8]
     record = {

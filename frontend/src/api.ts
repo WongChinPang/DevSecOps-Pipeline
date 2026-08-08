@@ -1,6 +1,7 @@
 export interface ScanRequest {
   iac_content: string;
   dockerfile_content: string;
+  app_code: string;
 }
 
 export interface DetailedFinding {
@@ -11,12 +12,23 @@ export interface DetailedFinding {
   remediation: string;
 }
 
+export interface CodeFinding {
+  rule_id: string;
+  risk_level: string;
+  finding: string;
+  remediation: string;
+  file: string;
+  line: number;
+  code: string;
+}
+
 export interface ScanResult {
   id: string;
   timestamp: string;
   status: "passed" | "blocked";
   findings: { rule: string; count: number }[];
   details: DetailedFinding[];
+  code_findings: CodeFinding[];
   iac_snippet: string;
   dockerfile_snippet: string;
 }

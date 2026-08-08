@@ -89,6 +89,45 @@ export default function ScanResults({ result }: Props) {
           No security issues found. This configuration is safe to deploy.
         </p>
       )}
+
+      {result.code_findings && result.code_findings.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-gray-700">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-lg">{'\u26A0\uFE0F'}</span>
+            <h4 className="text-sm font-semibold text-amber-300">
+              Application Code Warnings ({result.code_findings.length})
+            </h4>
+          </div>
+          <p className="text-xs text-amber-400/70 mb-3">
+            These are non-blocking warnings. Fix them to improve code security.
+          </p>
+          <div className="space-y-2">
+            {result.code_findings.map((cf, i) => (
+              <div key={i}
+                className={`border rounded-lg p-3 ${RISK_COLORS[cf.risk_level] || "border-gray-700 bg-gray-900 text-gray-300"}`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-mono font-bold px-1.5 py-0.5 rounded bg-black/30">
+                    {cf.rule_id}
+                  </span>
+                  <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
+                    cf.risk_level === "CRITICAL" ? "bg-red-700 text-red-200" :
+                    cf.risk_level === "HIGH" ? "bg-orange-700 text-orange-200" :
+                    cf.risk_level === "MEDIUM" ? "bg-amber-700 text-amber-200" :
+                    "bg-blue-700 text-blue-200"
+                  }`}>
+                    {cf.risk_level}
+                  </span>
+                  <span className="text-xs text-gray-500 ml-auto">Line {cf.line}</span>
+                </div>
+                <p className="text-xs text-gray-400 font-mono mt-1 truncate">{cf.code}</p>
+                <p className="text-sm mt-1">{cf.finding}</p>
+                <p className="text-xs mt-1 opacity-70">Fix: {cf.remediation}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
