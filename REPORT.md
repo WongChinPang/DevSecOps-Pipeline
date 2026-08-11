@@ -124,6 +124,30 @@ The system provides two interaction paths sharing the same Lambda functions.
 
 **JWT Authentication.** Users authenticate with SHA-256 salted passwords stored in SQLite. On login, `auth_service.py` issues a signed JWT (HS256, 24h expiry). The `require_auth` FastAPI dependency validates the JWT on every protected endpoint. Tokens survive container restarts via a deterministic signing secret derived from the `JWT_MASTER_SECRET` environment variable.
 
+**Module-Level Startup Pattern.** `init_db()` is called at module scope in `main.py:12`, running once at container initialization — not on the first HTTP request. This creates the SQLite users table and seeds the default account before uvicorn binds the port. Similarly, `s3` and `lambda` boto3 clients are instantiated at module scope (`main.py:16`, `scan_service.py:13-14`) and reused across all requests. This avoids per-request connection overhead — a single boto3 session handles connection pooling automatically.
+
+**Scanner Error Message Parsing.** Role 3's Lambda outputs error messages in Chinese: `"安全检查未通过！发现 X 个严重漏洞，Y 个高危漏洞。已阻断部署。"`. Role 2's code in `scan_service.py:31-48` parses this string using Python string splitting — extracting the `严重漏洞` (critical) and `高危漏洞` (high) counts — to produce a structured `summary` array. This is a cross-language integration pattern: the Lambda's output language is independent of the consumer's parsing logic.
+
+**LLM Auditor Three-RPC Chain.** Generating per-rule detail for the web platform requires three sequential RPC calls, not one (`scan_service.py:52-108`):
+
+1. **`s3.put_object`** — Upload the IaC template (and optionally application code appended after a `# === Application Code ===` marker) to `s3://devsecops-reports-087572104425/templates/web-scan-{uuid}.yaml`. Each scan uses a unique key via `uuid.uuid4()[:8]`.
+
+2. **`client.invoke(llm-auditor)`** — Invoke the LLM auditor Lambda with `{s3_bucket, s3_key}`, not with inline content. The Lambda reads the file from S3 internally, sends it to Amazon Bedrock's Nova Micro model with a structured system prompt defining 8 rules, and writes the resulting JSON and Markdown reports back to `s3://.../reports/`. The Lambda response contains only a summary and `report_location` — the full per-rule details are in the S3 report file.
+
+3. **`s3.get_object`** — Download the `report_location` JSON from S3 (path parsing: split on `s3://`, then `split("/", 1)` to extract bucket and key). Parse `data["details"]` — an array of 8 objects each containing `rule_id`, `status`, `risk_level`, `finding`, `remediation` — and map into the response format.
+
+The chain's error handling is graceful: if the S3 upload fails, `_invoke_llm_auditor` returns `[]` — an empty details array. If the LLM invocation returns non-200, it returns `[]`. If the S3 download fails, the `try/except` catches it and returns `[]`. At no point does the auditor failure affect the overall scan status — the scanner's pass/block decision is independent.
+
+**Code Scanner Design.** `code_scanner.py` implements 19 regex rules across two language sets. The rule selection is based on file extension (`scan_app_code`, line 43-71): `.py`/`.pyi` files use `PYTHON_RULES` (8 rules), `.js`/`.ts`/`.jsx`/`.tsx`/`.mjs`/`.cjs` files use `JS_RULES` (11 rules). `.mjs` and `.cjs` are included for ES module and CommonJS Node.js module detection. Each rule produces at most one finding per file — an explicit `break` after the first match (line 69). The `SECRET-01` rule (line 6-7) uses negative lookaheads to exclude false positives: `${...}` template variables, empty strings, `ChangeMe` placeholders, and `template` strings are all excluded from password detection.
+
+For pipeline CodeBuild scans, the `scan_directory` function (`code_scanner.py:74-88`) performs recursive directory traversal with `os.walk`, skipping `node_modules`, `.git`, `frontend`, `dist`, `build`, and `__pycache__` directories. File read errors (binary files, permissions) are handled with `except Exception: pass` and `errors="replace"` to handle non-UTF-8 encoded files without crashing the pipeline.
+
+**GitHub API Programmatic Trigger.** `github_service.py` uses the GitHub REST API v3 Contents endpoint — not Git CLI — to programmatically commit files and trigger the pipeline. `_get_file_sha` (line 16-21) performs a `GET /repos/{owner}/{repo}/contents/{path}?ref={branch}` to retrieve the current file's SHA — required by the subsequent `PUT` call as a conflict-prevention mechanism. `commit_file` (line 24-41) base64-encodes the content and executes `PUT /repos/{owner}/{repo}/contents/{path}` with the `{message, content, branch, sha}` body. The function handles both creation (HTTP 201) and update (HTTP 200) response codes. The GitHub token is sourced from `os.getenv("GITHUB_TOKEN")` — never hardcoded — and is stored in the ECS task definition environment variables.
+
+**FastAPI Route Ordering.** The order of route registration in `main.py` is critical. All API endpoints — `/api/login`, `/api/health`, `/api/scan`, `/api/scans`, `/api/audit-log` — are registered before the `/{full_path:path}` catch-all at line 116. FastAPI processes routes in registration order, so `/api/*` requests hit the API endpoints, while all other paths (e.g., `/`, `/app.js`, `/favicon.ico`) fall through to the SPA catch-all, which serves `index.html` for client-side routing. The `audit-log/{report_key:path}` endpoint at line 103-110 uses a `:path` converter to allow slashes in the S3 report key.
+
+**In-Memory Scan History.** `scan_service.py:16` maintains a `scans: list[dict]` — a module-level list with a 50-record cap (`scans.insert(0, record)` on new scans, `scans.pop()` when exceeding 50). This is intentionally in-memory (no database dependency) for demo simplicity. Records include `id`, `timestamp`, `status`, `findings` summary, `details` full rule array, and the first 200 characters of both the IaC and Dockerfile inputs as snippets for the history display.
+
 ---
 
 ## Section 2. Risk and Threat Analysis
@@ -364,6 +388,34 @@ pie title Pipeline Time Allocation (~135s)
     "Build" : 60
     "Deploy" : 40
 ```
+### 4.5 Error Resilience Testing
+
+The system handles component failures at multiple levels without cascading crashes. The following table maps each failure mode to its code location and graceful degradation behavior.
+
+**Table 4.5: Error Resilience Matrix**
+
+| Component | Code Location | Failure Mode | Behavior |
+|-----------|--------------|--------------|----------|
+| Scanner Lambda | `scan_service.py:24-27` | Lambda invocation fails, times out, or returns malformed response | `has_error = False`, scan returns PASSED — fail-safe but requires the pipeline's `FunctionError` gate for blocking |
+| LLM Auditor — S3 upload | `scan_service.py:62-66` | S3 bucket unreachable or permission denied | `_invoke_llm_auditor` returns `[]`; scan `status` and `findings` unaffected |
+| LLM Auditor — Lambda invoke | `scan_service.py:71-78` | Lambda returns non-200 status | `_invoke_llm_auditor` returns `[]`; scan result lacks `details` array but maintains scanner-based `status` |
+| LLM Auditor — S3 report read | `scan_service.py:86-92` | Report file not found or malformed JSON | Outer `try/except` at line 105 catches all, returns `[]` |
+| Audit Log — S3 pagination | `main.py:72-97` | S3 endpoint unreachable or no `ListBucket` permission | Empty reports array returned; user sees "No audit reports found" without error |
+| Code Scanner — file read | `code_scanner.py:82-87` | Binary file, permissions error, non-UTF-8 encoding | `errors="replace"` converts unreadable bytes; `except Exception: pass` skips the file |
+| Database initialization | `auth_service.py:26-38` | SQLite DB file unwritable | `uvicorn` startup blocked — fatal; container restarts and ECS retries |
+| JWT — expired token | `auth_service.py:92-94` | `jwt.ExpiredSignatureError` | Returns `False`, user receives 401, frontend redirects to login |
+| JWT — tampered token | `auth_service.py:95-97` | `jwt.InvalidTokenError` | Returns `False`, same 401 response |
+| Frontend API calls | `App.tsx:20-22` | Network error, API unreachable | `.catch(() => {})` silently swallows; empty state displayed |
+
+```mermaid
+pie title Error Handling by Strategy
+    "Graceful fallback" : 6
+    "Silent skip" : 2
+    "Fatal (safe fail)" : 1
+    "Client redirect" : 2
+```
+
+The **LLM auditor** is treated as an optional enhancement, not a critical gate. If it fails at any point, the scan's `status` and `findings` from the deterministic scanner remain authoritative. The `details` array simply defaults to empty. The **scanner Lambda** (Role 3) is the single source of truth for pipeline blocking. The **database** is the only fatal failure point — without user authentication, the platform cannot function, and the container fails to start cleanly.
 
 ---
 
