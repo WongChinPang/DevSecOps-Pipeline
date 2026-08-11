@@ -1,4 +1,3 @@
-import secrets
 import json
 from fastapi import FastAPI, Header, HTTPException, Depends, Query
 from fastapi.responses import FileResponse
@@ -8,10 +7,12 @@ import os
 import boto3
 from scan_service import run_scan, get_scans
 from code_scanner import scan_app_code
+from auth_service import authenticate, validate_token, init_db
+
+init_db()
 
 app = FastAPI(title="DevSecOps Pipeline Demo")
 
-tokens: set[str] = set()
 s3 = boto3.client("s3", region_name="us-east-1")
 REPORT_BUCKET = "devsecops-reports-087572104425"
 
@@ -28,19 +29,18 @@ class ScanRequest(BaseModel):
 
 
 def require_auth(authorization: str = Header(None)):
-    if not authorization:
+    if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Authentication required")
     token = authorization.replace("Bearer ", "")
-    if token not in tokens:
-        raise HTTPException(401, "Invalid authentication token")
+    if not validate_token(token):
+        raise HTTPException(401, "Invalid or expired token")
     return token
 
 
 @app.post("/api/login")
 def login(req: LoginRequest):
-    if req.username == "alan" and req.password == "123456789":
-        token = secrets.token_hex(16)
-        tokens.add(token)
+    token = authenticate(req.username, req.password)
+    if token:
         return {"success": True, "token": token}
     raise HTTPException(401, "Invalid credentials")
 
