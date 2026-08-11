@@ -20,11 +20,13 @@ The core innovation is a **dual-layer security architecture**: Role 3's scanner 
 | Function | Mechanism | Outcome |
 |----------|-----------|---------|
 | Automated CI/CD | CodePipeline V2 (SUPERSEDED mode) with GitHub webhook trigger | Source → SecurityTest → Build → Deploy, ~2 minutes end-to-end |
+| Reusable GitHub Action | Composite action at `.github/actions/security-scan` invokes the Security Scanner Lambda | Any repository can integrate scanning by adding a single workflow file |
 | Static Security Scanning | Lambda function (Python 3.10, 60s timeout) parses CloudFormation YAML and Dockerfile text | Deterministic PASS/BLOCK for 8 infrastructure rules |
 | AI Audit Reporting | Lambda function (Python 3.12, 30s timeout) invokes Amazon Nova Micro via Bedrock, reads IaC from S3 | JSON + Markdown reports with per-rule findings, risk levels, and remediation text |
-| Application Code Scanning | Regex-based rules engine (Role 2) running in FastAPI and CodeBuild | 12 rules covering hardcoded secrets, injection vectors, and unsafe deserialization |
+| Application Code Scanning | Regex-based rules engine (Role 2) running in FastAPI for web scans AND inline in CodeBuild for every `git push` | 19 rules covering hardcoded secrets, injection vectors, XSS, and unsafe deserialization across Python, JS, and TS |
 | Containerized Deployment | Multi-stage Docker build → ECR push → ECS Fargate rolling update | Images tagged with commit SHA for traceability |
-| Web Scanning Platform | React SPA (TypeScript, Tailwind) + FastAPI (Python) + JWT-style bearer token auth | Instant IaC/Dockerfile/Code scanning with per-rule detail expansion |
+| Web Scanning Platform | React SPA (TypeScript, Tailwind) + FastAPI (Python) + JWT-based authentication with SQLite-backed user store | Instant IaC/Dockerfile/Code scanning with per-rule detail expansion |
+| Authentication | SHA-256 salted password hashing stored in SQLite database; JWT (HS256, 24-hour expiry) issued on login | Persistent user credentials with signed, expiring tokens |
 | Centralized Audit Trail | S3 for reports, CloudWatch for execution logs | All scan results and pipeline executions timestamped and retrievable |
 
 ### 1.3 Technical Architecture
@@ -75,7 +77,7 @@ The system implements two complementary interaction paths sharing the same Lambd
 
 | Step | Technical Flow |
 |------|---------------|
-| Authentication | `POST /api/login` with username/password → `secrets.token_hex(16)` → stored in ECS container memory, returned as Bearer token |
+| Authentication | `POST /api/login` with username/password → `auth_service.authenticate()` verifies against SQLite DB → returns signed JWT (HS256, 24h expiry) | Hashed passwords, JWT validation on all protected endpoints |
 | Scan Request | `POST /api/scan` with `{iac_content, dockerfile_content, app_code}` → validated via `Depends(require_auth)` decorator |
 | Scanner Invocation | boto3 `client.invoke(FunctionName="devsecops-security-scanner", Payload=...)` → parse `FunctionError` in response |
 | LLM Auditor Chain | Upload IaC + app code to S3 → boto3 `client.invoke(FunctionName="llm-auditor", Payload={s3_bucket, s3_key})` → download report from S3 → parse per-rule `details` array |
@@ -91,6 +93,8 @@ The system implements two complementary interaction paths sharing the same Lambd
 **Network Security Model**: A dual security group architecture protects the Fargate service. The ALB security group (`sg-044770e4a0d745b09`) allows HTTP from `0.0.0.0/0` on port 80 — the only public ingress point. The application security group (`sg-0345988fbb2fe2e30`) allows port 8000 only from the ALB security group itself. No direct internet access to the container. The Fargate tasks reside in private subnets with no public IP, accessing ECR and the internet through a NAT Gateway in a public subnet.
 
 **Dual Lambda Interface Handling**: Role 3's scanner accepts inline content in its payload — `{iac_content, dockerfile_content}` — enabling direct invocation without pre-staging to S3. Role 4's auditor requires S3 paths — `{s3_bucket, s3_key}` — because it reads the IaC file from S3 internally before sending it to Bedrock. The pipeline and web platform handle both formats: they first upload to S3 (needed by the auditor), then call the scanner with inline text for lower latency, then call the auditor with the S3 key.
+
+**JWT-Based Stateless Authentication**: User authentication uses JSON Web Tokens (HS256, 24-hour expiry) with SHA-256 salted password hashes stored in a SQLite database. The `auth_service.py` module initializes the database on application startup and seeds a default user. The `require_auth` FastAPI dependency decodes and validates the JWT on every protected endpoint. This replaces the earlier in-memory `secrets.token_hex` token store with persistent, cryptographically signed tokens that survive container restarts. The JWT signing secret is derived from the `JWT_MASTER_SECRET` environment variable with a fallback, enabling production secret rotation without redeployment.
 
 ---
 
@@ -278,8 +282,10 @@ Validation was conducted through three layers: unit testing of individual Lambda
 | Web API scan (safe, no LLM) | ~1.5 seconds | Scanner Lambda + response parsing |
 | Web API scan (blocked, with LLM) | ~7.5 seconds | Scanner + S3 upload + LLM auditor + S3 report download |
 | Code scanner (per file) | <10 ms | Pure regex, in-process, no I/O |
+| JWT login (SQLite lookup + sign) | ~5 ms | SHA-256 hash verify + HS256 JWT encode |
 | ECS task startup (cold) | ~45 seconds | Image pull + container init + ALB registration |
 | ECS task startup (warm, same image) | ~10 seconds | Container restart only |
+| GitHub Action scan (external repo) | ~3 seconds | Lambda cold-start + payload transfer; repo adds one workflow file |
 
 ### 4.5 Edge Case Discovery
 
@@ -474,6 +480,64 @@ runs:
                                           FastAPI + React
                                           Private Subnet
                                           No Public IP
+```
+
+### Annex E: JWT Authentication Module (auth_service.py)
+
+```python
+import sqlite3, hashlib, secrets, os, time
+from datetime import datetime, timezone
+import jwt
+
+DB_PATH = os.environ.get("AUTH_DB_PATH",
+    os.path.join(os.path.dirname(__file__), "users.db"))
+JWT_SECRET = hashlib.sha256(
+    os.environ.get("JWT_MASTER_SECRET", "devsecops-jwt-master-key-2026").encode()
+).hexdigest()
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_SECONDS = 86400  # 24 hours
+
+def init_db() -> None:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    existing = conn.execute("SELECT id FROM users WHERE username = ?", ("alan",)).fetchone()
+    if not existing:
+        pw_hash = hash_password("123456789")
+        conn.execute("INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
+                     ("alan", pw_hash, datetime.now(timezone.utc).isoformat()))
+        conn.commit()
+    conn.close()
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    return salt + ":" + hashlib.sha256((salt + password).encode()).hexdigest()
+
+def authenticate(username: str, password: str) -> str | None:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    conn.close()
+    if not row or not verify_password(password, row["password_hash"]):
+        return None
+    now = int(time.time())
+    payload = {"sub": row["username"], "iat": now, "exp": now + JWT_EXPIRY_SECONDS}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def validate_token(token: str) -> bool:
+    try:
+        jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return True
+    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        return False
 ```
 
 ---
